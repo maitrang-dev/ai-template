@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Content Generation — Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0c0f;
+    --surface: #13151a;
+    --surface2: #1c1f27;
+    --border: #252830;
+    --gold: #e8b84b;
+    --gold-dim: #c49a2e;
+    --teal: #3ecfb2;
+    --rose: #f06a6a;
+    --violet: #9b7cf8;
+    --text: #e8e9ed;
+    --muted: #6b7080;
+    --line: #2a2d37;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.6;
+  }
+
+  header {
+    padding: 48px 64px 32px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .header-left h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2.4rem;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .header-left h1 em {
+    color: var(--gold);
+    font-style: italic;
+  }
+
+  .header-left p {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .legend {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Main canvas */
+  .canvas {
+    position: relative;
+    z-index: 1;
+    padding: 56px 64px 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* Connector line */
+  .connector {
+    width: 2px;
+    background: linear-gradient(to bottom, var(--border), var(--border));
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+
+  .connector::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid var(--muted);
+  }
+
+  .connector.gold { background: linear-gradient(to bottom, var(--gold-dim), var(--gold-dim)); }
+  .connector.gold::after { border-top-color: var(--gold-dim); }
+  .connector.teal { background: var(--teal); }
+  .connector.teal::after { border-top-color: var(--teal); }
+
+  /* Node base */
+  .node {
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 24px 32px;
+    width: 600px;
+    position: relative;
+    transition: border-color 0.3s, box-shadow 0.3s;
+    cursor: default;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .node:hover {
+    border-color: var(--gold-dim);
+    box-shadow: 0 0 32px rgba(232, 184, 75, 0.07);
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .node-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .node-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.25rem;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    margin-bottom: 10px;
+  }
+
+  .node-desc {
+    font-size: 0.83rem;
+    color: #9aa0b0;
+    line-height: 1.65;
+  }
+
+  .node-icon {
+    position: absolute;
+    top: 22px;
+    right: 26px;
+    font-size: 1.4rem;
+    opacity: 0.7;
+  }
+
+  /* Step numbers */
+  .step-badge {
+    position: absolute;
+    left: -48px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  /* Special nodes */
+  .node.hero {
+    background: linear-gradient(135deg, #1a1b20 0%, #13151a 100%);
+    border-color: var(--gold-dim);
+    box-shadow: 0 0 48px rgba(232, 184, 75, 0.08);
+  }
+
+  .node.hero .node-title { color: var(--gold); font-size: 1.5rem; }
+
+  .node.ai-node {
+    border-color: #2e3545;
+    background: linear-gradient(135deg, #141720 0%, #0f1118 100%);
+  }
+
+  .node.ai-node .node-title { color: var(--teal); }
+
+  /* Branch container */
+  .branch-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+
+  .branch-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: var(--bg);
+    padding: 4px 14px;
+    border: 1px solid var(--gold-dim);
+    border-radius: 20px;
+    margin: 12px 0;
+  }
+
+  .branches {
+    display: flex;
+    gap: 32px;
+    width: 100%;
+    max-width: 1200px;
+    justify-content: center;
+    position: relative;
+  }
+
+  /* Horizontal connector line between branches */
+  .branches::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(50% - 300px);
+    width: 600px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .branch {
+    flex: 1;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    position: relative;
+  }
+
+  .branch-head {
+    font-family: 'DM Serif Display', serif;
+    font-size: 0.9rem;
+    font-style: italic;
+    color: var(--muted);
+    padding: 8px 20px;
+    background: var(--surface2);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .branch-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    background: var(--gold);
+    color: var(--bg);
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 500;
+  }
+
+  .node.branch-node {
+    width: 100%;
+    max-width: 440px;
+  }
+
+  .node.branch-node.path-a { border-color: #9b7cf840; }
+  .node.branch-node.path-a .node-title { color: var(--violet); }
+  .node.branch-node.path-b { border-color: #3ecfb240; }
+  .node.branch-node.path-b .node-title { color: var(--teal); }
+
+  /* Merge label */
+  .merge-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 4px 0;
+  }
+
+  .merge-label::before, .merge-label::after {
+    content: '';
+    height: 1px;
+    width: 60px;
+    background: var(--border);
+  }
+
+  /* Tag pills inside nodes */
+  .pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .pill {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    padding: 3px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.04em;
+  }
+
+  .pill.gold { background: rgba(232,184,75,0.12); color: var(--gold); border: 1px solid rgba(232,184,75,0.2); }
+  .pill.teal { background: rgba(62,207,178,0.1); color: var(--teal); border: 1px solid rgba(62,207,178,0.2); }
+  .pill.violet { background: rgba(155,124,248,0.1); color: var(--violet); border: 1px solid rgba(155,124,248,0.2); }
+  .pill.rose { background: rgba(240,106,106,0.1); color: var(--rose); border: 1px solid rgba(240,106,106,0.2); }
+  .pill.neutral { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Final action node */
+  .node.action-node {
+    border-color: #3ecfb240;
+    background: linear-gradient(135deg, #101a18 0%, #0b0c0f 100%);
+  }
+
+  .node.action-node .node-title { color: var(--teal); }
+
+  /* Publish node */
+  .node.publish-node {
+    border-color: var(--rose);
+    border-style: dashed;
+    background: linear-gradient(135deg, #1a1012 0%, #0f0c0d 100%);
+  }
+
+  .node.publish-node .node-title { color: var(--rose); }
+
+  /* Schedule badge */
+  .schedule-bar {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .schedule-bar .cal-icon {
+    font-size: 1rem;
+  }
+
+  .schedule-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text);
+  }
+
+  /* Social platform row */
+  .platforms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .platform-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .platform-btn.selected { border-color: var(--rose); background: rgba(240,106,106,0.12); color: var(--rose); }
+  .platform-btn.unselected { border-color: var(--border); background: var(--surface2); color: var(--muted); }
+
+  /* Login popup hint */
+  .popup-hint {
+    margin-top: 10px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid #f06a6a30;
+    background: rgba(240,106,106,0.05);
+    font-size: 0.75rem;
+    color: #f06a6a90;
+    font-family: 'DM Mono', monospace;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .conn-h {
+    height: 32px;
+  }
+
+  .conn-h-sm {
+    height: 20px;
+  }
+
+  .split-connector {
+    width: 100%;
+    max-width: 700px;
+    position: relative;
+    height: 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .split-connector::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+  }
+
+  .split-connector::after {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: calc(50% - 200px);
+    width: 400px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .split-down {
+    position: absolute;
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    bottom: 0;
+  }
+
+  .split-down.left { left: calc(50% - 200px); }
+  .split-down.right { right: calc(50% - 200px); }
+
+  .rejoin-connector {
+    width: 100%;
+    max-width: 700px;
+    position: relative;
+    height: 44px;
+  }
+
+  .rejoin-connector::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(50% - 200px);
+    width: 400px;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .rejoin-connector .rej-left {
+    position: absolute;
+    left: calc(50% - 200px);
+    top: 0;
+    height: 44px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .rejoin-connector .rej-right {
+    position: absolute;
+    right: calc(50% - 200px);
+    top: 0;
+    height: 44px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .rejoin-connector .rej-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 44px;
+    height: 20px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .node-row {
+    display: flex;
+    gap: 32px;
+    width: 100%;
+    max-width: 1200px;
+    justify-content: center;
+  }
+
+  /* Edit actions */
+  .edit-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .edit-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .edit-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .edit-btn.primary { background: rgba(232,184,75,0.1); border: 1px solid rgba(232,184,75,0.25); color: var(--gold); }
+  .edit-btn.secondary { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
+  .edit-btn.auto { background: rgba(62,207,178,0.08); border: 1px solid rgba(62,207,178,0.2); color: var(--teal); }
+
+  /* Decorative vertical label */
+  .section-label {
+    writing-mode: vertical-rl;
+    position: fixed;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%) rotate(180deg);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--border);
+    z-index: 1;
+  }
+
+  /* Staggered animation */
+  .node:nth-child(1) { animation-delay: 0.05s; }
+  .node:nth-child(2) { animation-delay: 0.1s; }
+  .node:nth-child(3) { animation-delay: 0.15s; }
+  .node:nth-child(4) { animation-delay: 0.2s; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>AI Content <em>Generation</em> Platform</h1>
+    <p>Product Workflow — End-to-End User Journey</p>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--gold)"></div> Core flow</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--violet)"></div> Path A</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Path B / AI</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--rose)"></div> Publish</div>
+  </div>
+</header>
+
+<div class="section-label">AI Content Workflow v1.0</div>
+
+<div class="canvas">
+
+  <!-- STEP 1: Landing Page -->
+  <div class="node hero" style="animation-delay:0s">
+    <div class="node-tag">Step 01 — Entry Point</div>
+    <div class="node-title">Homepage / Landing Page</div>
+    <div class="node-desc">User arrives at the platform. Greeted with a clear value proposition, example outputs, and a prominent prompt input to begin creating. No account required to start.</div>
+    <div class="node-icon">🏠</div>
+    <div class="pills">
+      <span class="pill neutral">Public access</span>
+      <span class="pill neutral">Example gallery</span>
+      <span class="pill neutral">CTA: Start creating</span>
+    </div>
+  </div>
+
+  <div class="connector conn-h" style="height:36px"></div>
+
+  <!-- STEP 2: Prompt Input -->
+  <div class="node" style="animation-delay:0.1s">
+    <div class="node-tag">Step 02 — User Input</div>
+    <div class="node-title">Prompt Entry + Brand Link</div>
+    <div class="node-desc">User describes what they want to create. Optionally uploads brand assets (logo, images) or pastes a product/website URL for AI to extract brand context automatically.</div>
+    <div class="node-icon">✍️</div>
+    <div class="pills">
+      <span class="pill gold">Text prompt</span>
+      <span class="pill gold">Upload assets</span>
+      <span class="pill gold">Paste brand/product URL</span>
+      <span class="pill neutral">Optional fields</span>
+    </div>
+  </div>
+
+  <div class="connector conn-h" style="height:36px"></div>
+
+  <!-- STEP 3: AI Enhancement -->
+  <div class="node ai-node" style="animation-delay:0.15s">
+    <div class="node-tag">Step 03 — AI Processing</div>
+    <div class="node-title">AI Enhances Prompt & Suggests Asset Types</div>
+    <div class="node-desc">AI analyzes the input, scrapes brand context from the URL, enriches the prompt, then surfaces a curated set of recommended content formats — not just one template, but a full content suite.</div>
+    <div class="node-icon">🤖</div>
+    <div class="pills">
+      <span class="pill teal">Prompt enhancement</span>
+      <span class="pill teal">Brand tone extraction</span>
+      <span class="pill teal">Multi-format suggestions</span>
+      <span class="pill neutral">e.g. IG Ad, Story, Banner, Email…</span>
+    </div>
+  </div>
+
+  <div class="connector conn-h" style="height:28px"></div>
+
+  <!-- Branch Decision -->
+  <div class="branch-label">⚡ Choose Generation Path</div>
+
+  <!-- Split into two branches -->
+  <div class="split-connector" style="max-width:780px">
+    <div class="split-down left"></div>
+    <div class="split-down right"></div>
+  </div>
+
+  <div class="node-row" style="max-width:1000px; align-items: flex-start">
+
+    <!-- PATH A -->
+    <div class="branch" style="max-width:470px">
+      <div class="branch-head">
+        <span class="branch-num">A</span>
+        Sequential Generation
+      </div>
+      <div class="connector conn-h-sm"></div>
+
+      <div class="node branch-node path-a">
+        <div class="node-tag">Path A — Step 1</div>
+        <div class="node-title">Select Primary Format</div>
+        <div class="node-desc">User picks one format first (e.g., Instagram Ad). AI generates that single asset at full quality, using the enhanced prompt and brand context.</div>
+        <div class="pills">
+          <span class="pill violet">e.g. Instagram Feed Ad</span>
+          <span class="pill neutral">Single format focus</span>
+        </div>
+      </div>
+      <div class="connector conn-h-sm"></div>
+
+      <div class="node branch-node path-a">
+        <div class="node-tag">Path A — Step 2</div>
+        <div class="node-title">AI Suggests Related Assets</div>
+        <div class="node-desc">Based on the generated ad, AI proposes contextually matched companion formats — Story, Reel cover, carousel, LinkedIn, banner — informed by the content just created.</div>
+        <div class="pills">
+          <span class="pill violet">Smart suggestions</span>
+          <span class="pill neutral">Based on first output</span>
+        </div>
+      </div>
+      <div class="connector conn-h-sm"></div>
+
+      <div class="node branch-node path-a">
+        <div class="node-tag">Path A — Step 3</div>
+        <div class="node-title">Select 1, 2, 3, or All</div>
+        <div class="node-desc">User picks which additional assets to generate from the suggested list. AI generates each using the same creative direction as the initial ad for consistency.</div>
+        <div class="pills">
+          <span class="pill violet">Multi-select</span>
+          <span class="pill neutral">Consistent visual thread</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PATH B -->
+    <div class="branch" style="max-width:470px">
+      <div class="branch-head">
+        <span class="branch-num">B</span>
+        Bulk Generation
+      </div>
+      <div class="connector conn-h-sm"></div>
+
+      <div class="node branch-node path-b">
+        <div class="node-tag">Path B — Step 1</div>
+        <div class="node-title">View Full Asset Suite</div>
+        <div class="node-desc">AI presents all suggested formats at once as a menu — Instagram, Story, Facebook, LinkedIn, Banner, Email header — each with a preview thumbnail and brief description.</div>
+        <div class="pills">
+          <span class="pill teal">All formats visible</span>
+          <span class="pill neutral">Thumbnail previews</span>
+        </div>
+      </div>
+      <div class="connector conn-h-sm"></div>
+
+      <div class="node branch-node path-b" style="visibility:hidden; pointer-events:none">
+        <div style="height:40px"></div>
+      </div>
+      <div class="connector conn-h-sm" style="visibility:hidden"></div>
+
+      <div class="node branch-node path-b">
+        <div class="node-tag">Path B — Step 2</div>
+        <div class="node-title">Select 1, 2, 3, or All → Generate</div>
+        <div class="node-desc">User selects desired formats and hits Generate. AI creates all chosen assets in parallel in a single batch — delivered together when complete.</div>
+        <div class="pills">
+          <span class="pill teal">Batch generation</span>
+          <span class="pill teal">Parallel processing</span>
+          <span class="pill neutral">All at once</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Rejoin paths -->
+  <div class="rejoin-connector" style="max-width:1000px">
+    <div class="rej-left"></div>
+    <div class="rej-right"></div>
+    <div class="rej-center"></div>
+  </div>
+
+  <div class="merge-label">Paths converge — Generated Assets Ready</div>
+  <div class="connector conn-h-sm"></div>
+
+  <!-- STEP 5: Edit -->
+  <div class="node" style="width:620px; animation-delay:0.25s">
+    <div class="node-tag">Step 05 — Review & Edit</div>
+    <div class="node-title">Edit, Enhance & Fact-Check</div>
+    <div class="node-desc">Full editing suite to refine generated content. Inline editing, advanced design controls, AI-powered fact-checking for claims, statistics, and brand accuracy. Changes auto-save continuously.</div>
+    <div class="node-icon">✏️</div>
+    <div class="edit-actions">
+      <div class="edit-row">
+        <div class="edit-btn primary">✦ Inline Edit</div>
+        <div class="edit-btn primary">⚙ Advanced Editor</div>
+      </div>
+      <div class="edit-row">
+        <div class="edit-btn secondary">🔍 Fact-Check</div>
+        <div class="edit-btn auto">⟳ Auto-Save Active</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector conn-h" style="height:36px"></div>
+
+  <!-- STEP 6: Publish -->
+  <div class="node publish-node" style="width:620px; animation-delay:0.3s">
+    <div class="node-tag">Step 06 — Distribution</div>
+    <div class="node-title">Share, Export & Publish to Social Media</div>
+    <div class="node-desc">Choose how to distribute. Download files directly, share a link, or publish live to social platforms. Select multiple platforms simultaneously — a login popup appears per new platform to authenticate securely.</div>
+    <div class="node-icon">🚀</div>
+
+    <div class="platforms">
+      <div class="platform-btn selected">📸 Instagram</div>
+      <div class="platform-btn selected">📘 Facebook</div>
+      <div class="platform-btn unselected">🔗 LinkedIn</div>
+      <div class="platform-btn unselected">𝕏 X / Twitter</div>
+      <div class="platform-btn unselected">🎵 TikTok</div>
+      <div class="platform-btn unselected">📌 Pinterest</div>
+    </div>
+
+    <div class="popup-hint">
+      🔐 Login popup triggers per platform on first-time selection
+    </div>
+
+    <div class="schedule-bar">
+      <span class="cal-icon">📅</span>
+      <span>Schedule for:</span>
+      <div class="schedule-input">Mar 12, 2025</div>
+      <div class="schedule-input">09:30 AM</div>
+      <span style="margin-left:4px; font-size:0.7rem; color: var(--teal)">✓ Queued</span>
+    </div>
+  </div>
+
+  <!-- Final note -->
+  <div style="margin-top: 48px; text-align:center; color: var(--muted); font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em;">
+    END OF FLOW — Content live or scheduled ✦
+  </div>
+
+</div>
+
+</body>
+</html>
